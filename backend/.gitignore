@@ -1,0 +1,6 @@
+api_keys.env
+*.db
+__pycache__/
+*.pyc
+uploads/
+.env
