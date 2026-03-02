@@ -5,3 +5,5 @@ python-dotenv==1.0.1
 python-multipart==0.0.12
 aiofiles==24.1.0
 httpx==0.27.2
+psycopg2-binary==2.9.9
+gunicorn==21.1.0

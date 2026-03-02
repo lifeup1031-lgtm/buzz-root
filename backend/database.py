@@ -1,13 +1,16 @@
 """
 Database configuration and session management.
-SQLite for MVP, designed for easy migration to PostgreSQL.
+Supports PostgreSQL (production) and SQLite (local development).
 """
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
-DATABASE_URL = "sqlite:///./cpsm.db"
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./cpsm.db")
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# SQLite requires check_same_thread=False; PostgreSQL does not need it
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

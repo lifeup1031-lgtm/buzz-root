@@ -5,7 +5,7 @@ Replace stubs with real API calls when credentials are configured.
 import os
 from dotenv import load_dotenv
 
-load_dotenv("api_keys.env")
+load_dotenv()  # Load from OS environment variables
 
 
 class YouTubeAPI:
@@ -16,14 +16,16 @@ class YouTubeAPI:
         self.client_id = os.getenv("YOUTUBE_CLIENT_ID", "")
         self.client_secret = os.getenv("YOUTUBE_CLIENT_SECRET", "")
 
-    async def upload_video(self, video_path: str, title: str, description: str, tags: list[str]) -> dict:
+    async def upload_video(self, video_path: str, title: str, description: str, tags: list[str], is_kids_content: bool = False) -> dict:
         """Upload a video to YouTube Shorts. (Stub)"""
         # TODO: Implement with google-api-python-client
+        # API requires setting snippet.categoryId and status.selfDeclaredMadeForKids
         return {
             "platform": "youtube",
             "status": "stub",
             "message": "YouTube upload not yet implemented. Configure YOUTUBE_API_KEY.",
             "video_id": None,
+            "is_kids_content": is_kids_content,
         }
 
     async def get_stats(self, video_id: str) -> dict:
