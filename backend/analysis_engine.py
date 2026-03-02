@@ -1,9 +1,47 @@
 """
 Analysis Engine — Cross-platform performance analysis.
-Calculates save rate, velocity (initial momentum), and platform comparisons.
+Calculates save rate, velocity (initial momentum), drop-off danger, and platform comparisons.
 """
 from sqlalchemy.orm import Session
 from models import Post, PlatformStats
+
+
+# Platform-specific drop-off rate thresholds (data-driven)
+DROP_OFF_THRESHOLDS = {
+    "youtube": {"safe": 30, "caution": 40},   # Swiped Away 30-40% = reach limited
+    "tiktok": {"safe": 30, "caution": 50},    # Completion rate 50%+ needed for <15s
+    "instagram": {"safe": 25, "caution": 40},  # Strictest: 2-sec hook judgment
+}
+
+
+def get_drop_off_danger(rate: float, platform: str) -> dict:
+    """
+    Evaluate drop-off rate danger level based on platform-specific thresholds.
+    Returns level (safe/caution/danger), label, and color.
+    """
+    thresholds = DROP_OFF_THRESHOLDS.get(platform, {"safe": 30, "caution": 50})
+
+    if rate <= thresholds["safe"]:
+        return {
+            "level": "safe",
+            "label": "安全",
+            "emoji": "🟢",
+            "message": "アルゴリズムに好まれやすい状態です",
+        }
+    elif rate <= thresholds["caution"]:
+        return {
+            "level": "caution",
+            "label": "注意",
+            "emoji": "🟡",
+            "message": "ボーダーライン — 冒頭のフック改善を検討してください",
+        }
+    else:
+        return {
+            "level": "danger",
+            "label": "危険",
+            "emoji": "🔴",
+            "message": "アルゴリズムに嫌われるリスクが高いです。冒頭3秒を大幅に見直してください",
+        }
 
 
 def calculate_save_rate(saves: int, views: int) -> float:
@@ -41,6 +79,8 @@ def compare_platforms(db: Session, post_id: int) -> dict:
             "likes": s.likes,
             "saves": s.saves,
             "views_1h": s.views_1h,
+            "drop_off_rate": s.drop_off_rate,
+            "drop_off_danger": get_drop_off_danger(s.drop_off_rate, s.platform),
             "save_rate": calculate_save_rate(s.saves, s.views),
             "velocity": calculate_velocity(s.views_1h, s.views),
             "engagement_rate": round(
@@ -90,9 +130,9 @@ def get_dashboard_summary(db: Session) -> dict:
     stats = db.query(PlatformStats).all()
 
     summary = {
-        "youtube": {"views": 0, "likes": 0, "saves": 0},
-        "tiktok": {"views": 0, "likes": 0, "saves": 0},
-        "instagram": {"views": 0, "likes": 0, "saves": 0},
+        "youtube": {"views": 0, "likes": 0, "saves": 0, "drop_off_total": 0.0, "count": 0},
+        "tiktok": {"views": 0, "likes": 0, "saves": 0, "drop_off_total": 0.0, "count": 0},
+        "instagram": {"views": 0, "likes": 0, "saves": 0, "drop_off_total": 0.0, "count": 0},
     }
 
     for s in stats:
@@ -100,15 +140,29 @@ def get_dashboard_summary(db: Session) -> dict:
             summary[s.platform]["views"] += s.views
             summary[s.platform]["likes"] += s.likes
             summary[s.platform]["saves"] += s.saves
+            summary[s.platform]["drop_off_total"] += s.drop_off_rate or 0.0
+            summary[s.platform]["count"] += 1
+
+    # Calculate average drop-off rate per platform and add danger level
+    platform_result = {}
+    for platform, data in summary.items():
+        avg_drop_off = round(data["drop_off_total"] / data["count"], 1) if data["count"] > 0 else 0.0
+        platform_result[platform] = {
+            "views": data["views"],
+            "likes": data["likes"],
+            "saves": data["saves"],
+            "avg_drop_off_rate": avg_drop_off,
+            "drop_off_danger": get_drop_off_danger(avg_drop_off, platform),
+        }
 
     # Add highlights (which platform is best for each metric)
     highlights = {}
     for metric in ["views", "likes", "saves"]:
-        best = max(summary.items(), key=lambda x: x[1][metric])
+        best = max(platform_result.items(), key=lambda x: x[1][metric])
         highlights[metric] = best[0]
 
     return {
-        "platforms": summary,
+        "platforms": platform_result,
         "highlights": highlights,
         "total_posts": db.query(Post).count(),
     }
