@@ -1,9 +1,33 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { showToast } from "@/lib/api";
 
 export default function Sidebar() {
     const pathname = usePathname();
+    const router = useRouter();
+    const [user, setUser] = useState<{ display_name?: string; email?: string } | null>(null);
+
+    useEffect(() => {
+        // Hydration safely load user from localStorage
+        const storedUser = localStorage.getItem("buzz_user");
+        if (storedUser) {
+            try {
+                setUser(JSON.parse(storedUser));
+            } catch (e) {
+                console.error("Failed to parse user data", e);
+            }
+        }
+    }, [pathname]); // Re-check on nav in case they just logged in
+
+    const handleLogout = () => {
+        localStorage.removeItem("buzz_auth_token");
+        localStorage.removeItem("buzz_user");
+        setUser(null);
+        showToast("ログアウトしました", "info");
+        router.push("/login");
+    };
 
     const links = [
         {
@@ -66,14 +90,15 @@ export default function Sidebar() {
     ];
 
     return (
-        <aside className="sidebar">
+        <aside className="sidebar" style={{ display: "flex", flexDirection: "column" }}>
             <div className="sidebar-logo">
                 <div>
                     <h1>BUZZ-ROOT</h1>
                     <span>バズルート</span>
                 </div>
             </div>
-            <nav className="sidebar-nav">
+            
+            <nav className="sidebar-nav" style={{ flex: 1 }}>
                 {links.map((link) => (
                     <Link
                         key={link.href}
@@ -85,6 +110,67 @@ export default function Sidebar() {
                     </Link>
                 ))}
             </nav>
+
+            {user && (
+                <div style={{
+                    padding: "16px",
+                    borderTop: "1px solid var(--border)",
+                    marginTop: "auto",
+                }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
+                        <div style={{
+                            width: "36px",
+                            height: "36px",
+                            borderRadius: "50%",
+                            backgroundColor: "var(--primary)",
+                            color: "white",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontWeight: "bold",
+                            fontSize: "14px"
+                        }}>
+                            {user.display_name ? user.display_name.charAt(0).toUpperCase() : user.email?.charAt(0).toUpperCase()}
+                        </div>
+                        <div style={{ overflow: "hidden" }}>
+                            <div style={{ fontSize: "14px", fontWeight: "bold", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                                {user.display_name || "ユーザー"}
+                            </div>
+                            <div style={{ fontSize: "12px", color: "var(--color-text-muted)", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                                {user.email}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button 
+                        onClick={handleLogout}
+                        style={{
+                            width: "100%",
+                            padding: "8px",
+                            backgroundColor: "transparent",
+                            border: "1px solid var(--border)",
+                            borderRadius: "8px",
+                            color: "var(--color-text)",
+                            cursor: "pointer",
+                            fontSize: "13px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: "6px",
+                            transition: "background 0.2s"
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.05)"}
+                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = "transparent"}
+                    >
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <polyline points="16 17 21 12 16 7"></polyline>
+                            <line x1="21" y1="12" x2="9" y2="12"></line>
+                        </svg>
+                        ログアウト
+                    </button>
+                </div>
+            )}
         </aside>
     );
 }

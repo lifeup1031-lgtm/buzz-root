@@ -8,7 +8,10 @@ backend/*.pyc
 backend/*.db
 backend/uploads/
 backend/api_keys.env
-
+backend/.venv/
+backend/venv/
+backend/env/
+.venv/
 # Environment
 .env
 *.env.local
