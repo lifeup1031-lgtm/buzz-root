@@ -2,6 +2,7 @@
 Analysis Engine — Cross-platform performance analysis.
 Calculates save rate, velocity (initial momentum), drop-off danger, and platform comparisons.
 """
+from typing import Optional
 from sqlalchemy.orm import Session
 from models import Post, PlatformStats
 
@@ -123,11 +124,15 @@ def get_best_platform_from_data(platforms: dict) -> dict:
     }
 
 
-def get_dashboard_summary(db: Session) -> dict:
+def get_dashboard_summary(db: Session, user_id: Optional[int] = None) -> dict:
     """
-    Aggregate dashboard data: total views/likes/saves per platform across all posts.
+    Aggregate dashboard data: total views/likes/saves per platform across posts.
+    If user_id is provided, aggregates only for posts belonging to that user.
     """
-    stats = db.query(PlatformStats).all()
+    query = db.query(PlatformStats)
+    if user_id:
+        query = query.join(Post).filter(Post.user_id == user_id)
+    stats = query.all()
 
     summary = {
         "youtube": {"views": 0, "likes": 0, "saves": 0, "drop_off_total": 0.0, "count": 0},
@@ -161,8 +166,13 @@ def get_dashboard_summary(db: Session) -> dict:
         best = max(platform_result.items(), key=lambda x: x[1][metric])
         highlights[metric] = best[0]
 
+    # Total posts
+    post_query = db.query(Post)
+    if user_id:
+        post_query = post_query.filter(Post.user_id == user_id)
+
     return {
         "platforms": platform_result,
         "highlights": highlights,
-        "total_posts": db.query(Post).count(),
+        "total_posts": post_query.count(),
     }

@@ -33,5 +33,5 @@ def get_db():
 
 def init_db():
     """Create all tables."""
-    from models import Post, PlatformStats  # noqa: F401
+    from models import User, Post, PlatformStats, StatsHistory, OAuthToken  # noqa: F401
     Base.metadata.create_all(bind=engine)

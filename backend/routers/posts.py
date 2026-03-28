@@ -8,18 +8,24 @@ from typing import Optional
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Post, PlatformStats
+from models import Post, PlatformStats, User
 from services.platform_api import youtube_api, tiktok_api, instagram_api
+from services.storage import upload_file
+from services.auth_utils import get_current_user
 
 router = APIRouter(prefix="/api/posts", tags=["posts"])
 
-UPLOAD_DIR = "uploads"
-
 
 @router.get("")
-def list_posts(status: Optional[str] = None, db: Session = Depends(get_db)):
-    """Get all posts with their platform stats. Optionally filter by status."""
+def list_posts(
+    status: Optional[str] = None, 
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user)
+):
+    """Get all posts. Scoped to current user if authenticated."""
     query = db.query(Post)
+    if current_user:
+        query = query.filter(Post.user_id == current_user.id)
     if status:
         query = query.filter(Post.status == status)
     posts = query.order_by(Post.created_at.desc()).all()
@@ -27,9 +33,16 @@ def list_posts(status: Optional[str] = None, db: Session = Depends(get_db)):
 
 
 @router.get("/queue")
-def get_queue(db: Session = Depends(get_db)):
+def get_queue(
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user)
+):
     """Get posts grouped by status for the management page."""
-    all_posts = db.query(Post).order_by(Post.scheduled_at.asc(), Post.created_at.desc()).all()
+    query = db.query(Post)
+    if current_user:
+        query = query.filter(Post.user_id == current_user.id)
+        
+    all_posts = query.order_by(Post.scheduled_at.asc(), Post.created_at.desc()).all()
     result = {"scheduled": [], "published": [], "draft": []}
     for p in all_posts:
         s = p.status or "published"
@@ -66,28 +79,31 @@ async def create_post(
     video: UploadFile = File(...),
     thumbnail: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
 ):
     """Create a new post and upload video to selected platforms."""
-    # Save the uploaded video
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    ext = os.path.splitext(video.filename)[1] if video.filename else ".mp4"
-    filename = f"{uuid.uuid4().hex}{ext}"
-    filepath = os.path.join(UPLOAD_DIR, filename)
+    # Upload video to cloud storage (or local fallback)
+    video_content = await video.read()
+    video_result = await upload_file(
+        file_content=video_content,
+        original_filename=video.filename or "video.mp4",
+        folder="videos",
+        content_type=video.content_type or "video/mp4",
+    )
 
-    content = await video.read()
-    with open(filepath, "wb") as f:
-        f.write(content)
-
-    # Save the uploaded thumbnail if provided
-    thumbnail_filepath = None
+    # Upload thumbnail if provided
+    thumbnail_url = None
+    thumbnail_path = None
     if thumbnail:
-        th_ext = os.path.splitext(thumbnail.filename)[1] if thumbnail.filename else ".jpg"
-        th_filename = f"thumb_{uuid.uuid4().hex}{th_ext}"
-        th_filepath = os.path.join(UPLOAD_DIR, th_filename)
-        th_content = await thumbnail.read()
-        with open(th_filepath, "wb") as f:
-            f.write(th_content)
-        thumbnail_filepath = th_filepath.replace("\\", "/")
+        thumb_content = await thumbnail.read()
+        thumb_result = await upload_file(
+            file_content=thumb_content,
+            original_filename=thumbnail.filename or "thumb.jpg",
+            folder="thumbnails",
+            content_type=thumbnail.content_type or "image/jpeg",
+        )
+        thumbnail_path = thumb_result["path"]
+        thumbnail_url = thumb_result["url"]
 
     # Determine scheduling
     schedule_dt = None
@@ -104,11 +120,14 @@ async def create_post(
 
     # Create post record
     post = Post(
+        user_id=current_user.id if current_user else None,
         title=title,
         description=description,
         hashtags=hashtags,
-        video_path=filepath,
-        thumbnail_path=thumbnail_filepath,
+        video_path=video_result["path"],
+        video_url=video_result["url"],
+        thumbnail_path=thumbnail_path,
+        thumbnail_url=thumbnail_url,
         created_at=datetime.utcnow(),
         scheduled_at=schedule_dt,
         status=post_status,
@@ -123,15 +142,18 @@ async def create_post(
     selected_platforms = [p.strip() for p in platforms.split(",")]
     upload_results = []
 
+    # Use the cloud URL for platform uploads (required for Instagram API)
+    video_url_for_platforms = video_result["url"]
+
     for platform in selected_platforms:
         tags = [t.strip() for t in hashtags.split(",") if t.strip()]
 
         if platform == "youtube":
-            result = await youtube_api.upload_video(filepath, title, description, tags, is_kids_content=is_kids_content)
+            result = await youtube_api.upload_video(video_url_for_platforms, title, description, tags, is_kids_content=is_kids_content)
         elif platform == "tiktok":
-            result = await tiktok_api.upload_video(filepath, title, description, tags)
+            result = await tiktok_api.upload_video(video_url_for_platforms, title, description, tags)
         elif platform == "instagram":
-            result = await instagram_api.upload_video(filepath, title, description, tags, share_to_feed=ig_share_to_feed)
+            result = await instagram_api.upload_video(video_url_for_platforms, title, description, tags, share_to_feed=ig_share_to_feed)
         else:
             continue
 

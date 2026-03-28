@@ -2,12 +2,22 @@
 BUZZ-ROOT Backend — FastAPI Application Entry Point.
 """
 import os
+import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from database import init_db
-from routers import posts, analytics, auth
+from sqlalchemy import text
+from database import init_db, SessionLocal
+from routers import posts, analytics, auth, users
+
+# Configure structured logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("buzz-root")
 
 
 @asynccontextmanager
@@ -41,14 +51,49 @@ app.add_middleware(
 app.include_router(posts.router)
 app.include_router(analytics.router)
 app.include_router(auth.router)
+app.include_router(users.router)
 
+# Serve uploaded files (fallback if R2 is not configured)
 os.makedirs("uploads", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
 @app.get("/")
 def root():
-    return {"message": "CPSM API is running", "docs": "/docs"}
+    return {"message": "BUZZ-ROOT API is running", "version": "0.1.0", "docs": "/docs"}
+
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint with database connectivity verification."""
+    db_ok = False
+    try:
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+        db_ok = True
+    except Exception as e:
+        logger.error(f"Health check DB failure: {e}")
+
+    status = "healthy" if db_ok else "degraded"
+    return {
+        "status": status,
+        "service": "buzz-root-api",
+        "database": "connected" if db_ok else "disconnected",
+    }
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch unhandled exceptions and return a clean JSON error."""
+    logger.error(f"Unhandled error on {request.method} {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "internal_server_error",
+            "message": "サーバー内部でエラーが発生しました。しばらくしてからお試しください。",
+        },
+    )
 
 
 def seed_demo_data():
